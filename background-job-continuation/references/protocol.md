@@ -2,7 +2,7 @@
 
 ## Baseline and transport
 
-Helper version: 2.1.0. Dependencies: Linux, Python 3 standard library, tmux, and `codex app-server proxy`. Validation baseline: CLI 0.159.3 / tmux 3.4. Discover capabilities rather than assuming all newer versions work; daemon and CLI versions may differ.
+Helper version: 2.1.1. Dependencies: Linux, Python 3 standard library, tmux, and `codex app-server proxy`. Validation baseline: CLI 0.159.3 / tmux 3.4. Discover capabilities rather than assuming all newer versions work; daemon and CLI versions may differ.
 
 ```bash
 codex app-server proxy --help
@@ -46,6 +46,8 @@ An accepted request whose reply is lost stays `dispatch_outcome_unknown`. Search
 ## Records and recovery
 
 Records use same-directory temp files, file fsync, atomic rename and directory fsync. SIGINT/SIGTERM forward to the job process group. SIGKILL, power loss or host failure can prevent completion recording. Artifact existence does not prove business success.
+
+The worker pane has `remain-on-exit=off` by default, explicitly overriding inherited settings for that pane. It exits only after computation and monitoring finish, including terminal errors or expired waits; ordinary one-window job sessions then disappear automatically. Records survive independently of tmux. `--keep-tmux` persists a debugging choice in the job manifest and uses `remain-on-exit=on`, including during recovery. Older manifests without this field use automatic closing for newly started recovery workers. Existing retained panes from earlier runs are not removed retroactively; no other panes, sessions or global settings are changed.
 
 | State | Meaning |
 | --- | --- |

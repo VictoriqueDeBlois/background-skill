@@ -77,5 +77,45 @@
     "packaged_skill_structural_validation": "passed",
     "relative_document_links": "passed",
     "ci_workflow_yaml": "passed"
+  },
+  "tmux_cleanup_validation": {
+    "skill_version": "2.1.1",
+    "validation_date": "2026-10-02",
+    "regression_reproduced_on_2_1_0": true,
+    "isolated_tests": {
+      "count": 22,
+      "result": "passed",
+      "command": "python3 -m unittest discover -s tests -v"
+    },
+    "lifecycle_coverage": [
+      "Default worker window closes after monitoring, retaining logs and results.",
+      "Pending approvals keep the worker alive until monitoring finishes.",
+      "Failed computation and failed continuation also close the worker window.",
+      "Explicit --keep-tmux retains the exited pane for debugging.",
+      "Global remain-on-exit stays unchanged; unrelated sessions remain alive.",
+      "Expired and interrupted monitoring can recover without rerunning or redispatching; legacy manifests default to auto-close."
+    ],
+    "installed_helper_smoke_test": {
+      "result": "passed",
+      "permission_profile": ":read-only",
+      "frontend_disconnected": true,
+      "thread_unloaded_then_reloaded": true,
+      "settings_verified": true,
+      "reload_count": 1,
+      "job_exit_code": 0,
+      "continuation_state": "followup_completed",
+      "verification_source": "turn/completed",
+      "tmux_session_closed_before_test_cleanup": true,
+      "temporary_test_thread_deleted": true,
+      "completed_at": "2026-10-02T06:35:19.787596+00:00"
+    },
+    "package": {
+      "version": "2.1.1",
+      "file_count": 5,
+      "sha256": "b8a6b76675c389ed39a7cde44cee70a58f8414d0f8b19e45871a1b74afc4b160",
+      "archive_integrity": "passed",
+      "maintained_files_match": "passed"
+    },
+    "release_status": "Source update and local package only; existing v2.1.0 release unchanged."
   }
 }

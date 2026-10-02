@@ -10,7 +10,7 @@
 
 先阅读 `README.md`、`background-job-continuation/SKILL.md`、`background-job-continuation/references/protocol.md`、`docs/testing.md` 和 `test-report.json`，再检查 `background-job-continuation/scripts/bgjob.py` 及 `tests/`。
 
-当前版本为 2.1.0，已发布 MIT 许可证的 Release。Linux 实现用 tmux 保留任务和监控器，通过 `codex app-server proxy` 持续订阅原服务器上的原聊天。线程卸载后在同一服务器调用 `thread/resume`，核对保存的模型、审批、权限等配置，计算完成后派发已授权的后续任务，并用精确 thread ID、turn ID 和任务标记验证完成。19 项隔离测试、真实服务器前端断开与线程卸载测试，以及物理 SSH 断线期间的计算和自动续接已经通过。App 完全退出或 app-server 真正退出、重启没有实测。
+当前源码版本为 2.1.1；已发布的 MIT 许可证 Release 为 2.1.0。Linux 实现用 tmux 保留任务和监控器，通过 `codex app-server proxy` 持续订阅原服务器上的原聊天。线程卸载后在同一服务器调用 `thread/resume`，核对保存的模型、审批、权限等配置，计算完成后派发已授权的后续任务，并用精确 thread ID、turn ID 和任务标记验证完成。worker 在监控结束后默认关闭窗口，`--keep-tmux` 可保留结束后的窗口用于调试；不要在计算刚完成时关闭仍在等待续接的监控器。2.1.0 的 19 项隔离测试、真实服务器前端断开与线程卸载测试，以及物理 SSH 断线期间的计算和自动续接已经通过；当前测试套件增加了 tmux 生命周期检查。App 完全退出或 app-server 真正退出、重启没有实测。
 
 本次目标：Windows 上的后台计算与监控不因前端连接断开而结束；原 app-server 仍运行时，计算完成后能自动续接原聊天，无需重新连接客户端。
 

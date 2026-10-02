@@ -114,6 +114,14 @@ def main():
             result['passed'] = result['passed'] and result['lease'].get('reload_count', 0) >= 1
         if args.disconnect_client:
             result['passed'] = result['passed'] and owner is None
+        exit_deadline = time.monotonic() + 10
+        while time.monotonic() < exit_deadline:
+            exists = subprocess.run(['tmux', '-S', str(tmux_socket), 'has-session', '-t', '=' + result['launch']['session']], capture_output=True).returncode == 0
+            if not exists:
+                break
+            time.sleep(0.1)
+        result['tmux_session_closed'] = not exists
+        result['passed'] = result['passed'] and result['tmux_session_closed']
         if not result['passed']:
             raise RuntimeError('Real job/continuation evidence did not meet smoke-test criteria')
         print(json.dumps({'passed': True, 'turn_id': result['continuation']['turn_id'], 'response': response}, ensure_ascii=False), flush=True)

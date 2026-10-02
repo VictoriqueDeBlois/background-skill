@@ -1,6 +1,6 @@
 # background-job-continuation
 
-让 Linux 后台任务在 tmux 中运行，并在本地 CLI 或 SSH 客户端断开后，自动续接原来的 Codex 聊天。当前版本：**2.1.0**，许可证：[MIT](LICENSE)。
+让 Linux 后台任务在 tmux 中运行，并在本地 CLI 或 SSH 客户端断开后，自动续接原来的 Codex 聊天。当前源码版本：**2.1.1**，许可证：[MIT](LICENSE)。
 
 监控器与任务一起留在 Linux 主机上，保持原 app-server 的线程订阅。任务完成后，它保存退出码和日志，再向原线程发送已授权的后续任务；线程被卸载时，通过同一服务器重新加载并核验配置。
 
@@ -51,6 +51,8 @@ python3 "$helper" launch \
 
 `launch` 返回 tmux attach 命令和日志路径。`lease.json` 确认持久订阅，`completion.json` 记录计算结果，`continuation.json` 记录续接状态。
 
+后台计算完成后，tmux 中的 worker 会继续等待并核验续接。监控结束后默认关闭 worker 窗口；只有该窗口的任务会话随之退出。成功、失败或等待超时的结果和日志仍保存在任务目录中，不影响 `status` 和 `recover`。需要保留结束后的窗口调试时，在 `launch` 中添加 `--keep-tmux`；这个选择也适用于后续恢复监控。仅设置该 worker pane 的行为，不修改全局 tmux 配置或关闭其他会话。
+
 ```bash
 python3 "$helper" status --job-dir /absolute/job-directory
 python3 "$helper" recover --job-dir /absolute/job-directory
@@ -87,8 +89,8 @@ python3 -m unittest discover -s tests -v
 python3 scripts/package_skill.py
 ```
 
-打包输出为 `dist/background-job-continuation-2.1.0.zip`，包含 skill 文件和 MIT 许可证。ZIP 不提交到源码仓库，可用于 GitHub Release 附件。
+打包输出为 `dist/background-job-continuation-2.1.1.zip`，包含 skill 文件和 MIT 许可证。ZIP 不提交到源码仓库，可用于 GitHub Release 附件。
 
-19 项隔离测试、真实服务器的断开与卸载测试、物理 SSH 断线测试均已通过。物理测试中，任务和续接均在用户报告的断线区间内完成。公开摘要见 [test-report.json](test-report.json)；原始日志、会话标识和本机安装记录仅保留在本地。
+2.1.0 的 19 项隔离测试、真实服务器的断开与卸载测试、物理 SSH 断线测试均已通过。物理测试中，任务和续接均在用户报告的断线区间内完成。2.1.1 的 22 项隔离测试通过；已安装 helper 的真实前端断开与线程卸载测试也确认续接完成后 tmux 会话自行退出。测试覆盖默认关闭 tmux、调试保留窗口、续接与审批期间保持监控、超时后的恢复，以及不影响其他会话。公开摘要见 [test-report.json](test-report.json)，其中 `tmux_cleanup_validation` 记录本次修复的验证；原始日志、会话标识和本机安装记录仅保留在本地。
 
 复现测试见 [docs/testing.md](docs/testing.md)，首次发布步骤见 [docs/publishing.md](docs/publishing.md)。

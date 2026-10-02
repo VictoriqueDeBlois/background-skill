@@ -26,7 +26,7 @@ python3 /absolute/skill/scripts/bgjob.py launch \
   -- python3 /absolute/workspace/scripts/evaluate.py
 ```
 
-The helper creates a visible `bgjob-<id>` tmux session with `remain-on-exit`. Before executing the job, its worker establishes a persistent subscription to the original app-server; `lease.json` records it. Task, subscription and monitor run on the execution host independently of the SSH client. Give the user the exact attach command, logs and job directory from launch. tmux does not survive reboot or protect against the host forcibly killing user processes.
+The helper creates a visible `bgjob-<id>` tmux session. Its worker pane closes by default when computation and continuation monitoring have ended; a session containing only that window exits with it. Do not close tmux merely because computation has finished: the worker must remain alive until monitoring finishes or reaches its wait limit. Results and logs remain in the job directory. Add `--keep-tmux` at launch only when an exited pane is wanted for debugging; recovery preserves that choice. The helper changes only its own pane's `remain-on-exit`, not global settings or other sessions. Before executing the job, its worker establishes a persistent subscription to the original app-server; `lease.json` records it. Task, subscription and monitor run on the execution host independently of the SSH client. Give the user the exact attach command, logs and job directory from launch. tmux does not survive reboot or protect against the host forcibly killing user processes.
 
 ## Dispatch and verify
 

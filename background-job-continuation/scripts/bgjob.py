@@ -21,7 +21,7 @@ import sys
 import time
 import uuid
 
-VERSION = "2.1.0"
+VERSION = "2.1.1"
 FINAL = {"followup_completed", "followup_finished_with_error", "dispatch_failed", "configuration_mismatch", "owner_conflict"}
 
 
@@ -558,8 +558,9 @@ def start_tmux(jobdir, job, recovery=False):
     args = tmux_args(job)
     subprocess.run(args + ["new-session", "-d", "-s", session, "-c", job["cwd"],
         "-e", "CODEX_HOME=" + job["codex_home"], "-e", "PATH=" + os.environ.get("PATH", os.defpath), command], check=True, capture_output=True)
-    subprocess.run(args + ["set-option", "-p", "-t", session + ":0.0", "remain-on-exit", "on"], check=True, capture_output=True)
-    info = {"at": now(), "session": session, "attach": shlex.join(args + ["attach-session", "-t", session])}
+    keep_tmux = job.get("keep_tmux", False)
+    subprocess.run(args + ["set-option", "-p", "-t", session + ":0.0", "remain-on-exit", "on" if keep_tmux else "off"], check=True, capture_output=True)
+    info = {"at": now(), "session": session, "keep_tmux": keep_tmux, "attach": shlex.join(args + ["attach-session", "-t", session])}
     atomic(jobdir / "tmux.json", info)
     atomic(gate, {"ready": True})
     return info
@@ -670,6 +671,7 @@ def launch(args):
         "identity": identity, "settings": identity["settings"], "command": command, "next_task": next_task,
         "artifacts": [str(Path(p).resolve()) for p in args.artifact],
         "tmux_socket": str(Path(args.tmux_socket).resolve()) if args.tmux_socket else None,
+        "keep_tmux": args.keep_tmux,
         "lock_root": str(Path(args.lock_root or Path(home()) / "background-job-continuation/locks").resolve()),
         "poll_interval": args.poll_interval, "wait_timeout": args.wait_timeout,
         "observe_timeout": args.observe_timeout, "rpc_timeout": args.rpc_timeout}
@@ -723,6 +725,7 @@ def parser():
             cmd.add_argument("--next-file", required=True)
             cmd.add_argument("--artifact", action="append", default=[])
             cmd.add_argument("--tmux-socket")
+            cmd.add_argument("--keep-tmux", action="store_true", help="Keep the exited worker pane for debugging after monitoring ends")
             cmd.add_argument("--lock-root")
             cmd.add_argument("--poll-interval", type=positive, default=5)
             cmd.add_argument("--wait-timeout", type=positive, default=86400)
