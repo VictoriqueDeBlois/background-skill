@@ -1,0 +1,4 @@
+interface:
+  display_name: "Background Job Continuation"
+  short_description: "Run tmux jobs and continue Codex while SSH is disconnected"
+  default_prompt: "Use $background-job-continuation to run this Linux job in tmux and automatically continue in the same Codex thread, including while my client is disconnected."

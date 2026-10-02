@@ -1,0 +1,81 @@
+{
+  "skill_version": "2.1.0",
+  "validation_date": "2026-10-02",
+  "environment": {
+    "execution_host": "Linux",
+    "codex_cli": "0.159.3",
+    "app_server": "0.159.3",
+    "tmux": "3.4",
+    "python": "3.12.3"
+  },
+  "structural_validation": "passed",
+  "isolated_tests": {
+    "count": 19,
+    "result": "passed",
+    "command": "python3 -m unittest discover -s tests -v"
+  },
+  "real_offline_smoke_tests": [
+    {
+      "result": "passed",
+      "permission_profile": ":read-only",
+      "frontend_disconnected": true,
+      "thread_unloaded_then_reloaded": true,
+      "reload_count": 1,
+      "effective_settings_verified": true,
+      "job_exit_code": 0,
+      "continuation_state": "followup_completed",
+      "verification_source": "turn/completed",
+      "temporary_test_thread_deleted": true
+    },
+    {
+      "result": "passed",
+      "permission_profile": ":workspace",
+      "frontend_disconnected": true,
+      "thread_unloaded_then_reloaded": true,
+      "reload_count": 1,
+      "effective_settings_verified": true,
+      "job_exit_code": 0,
+      "continuation_state": "followup_completed",
+      "verification_source": "turn/completed",
+      "temporary_test_thread_deleted": true
+    }
+  ],
+  "physical_ssh_disconnect_test": {
+    "result": "passed",
+    "interval_source": "user-reported approximate minute times",
+    "user_reported_disconnect": "2026-10-02 08:56 Asia/Shanghai",
+    "user_reported_reconnect": "2026-10-02 09:34 Asia/Shanghai",
+    "job_completed_at": "2026-10-02T08:58:25.174475+08:00",
+    "dispatch_attempted_at": "2026-10-02T08:58:25.237092+08:00",
+    "verification_executed_at": "2026-10-02T08:59:05.294182+08:00",
+    "followup_completed_at": "2026-10-02T08:59:18.798138+08:00",
+    "job_exit_code": 0,
+    "heartbeat_count": 37,
+    "heartbeat_records_during_disconnect": 30,
+    "continuation_state": "followup_completed",
+    "verification_source": "turn/completed"
+  },
+  "configuration_change_test": {
+    "result": "dispatch stopped; computation result preserved",
+    "observed_boundary": "Legacy raw read-only sandbox acquired named :read-only profile after reload. Dispatch stopped on activePermissionProfile mismatch, with computation exit_code 0 preserved."
+  },
+  "limitations": [
+    "Linux only; original shared app-server must remain alive and host must reach the model provider.",
+    "Old/--no-daemon sessions without a verified shared control endpoint cannot guarantee continuation.",
+    "tmux does not survive host reboot.",
+    "User approvals and client-owned tools can require frontend reconnection.",
+    "Effective settings changes or writer conflicts stop dispatch; no automatic permission overrides or external fallback."
+  ],
+  "evidence_handling": "Public summary omits local usernames, absolute paths, thread/turn identifiers and full RPC payloads. Original records remain available locally outside the published branch.",
+  "publication_validation": {
+    "clean_checkout_isolated_tests": "19 passed",
+    "packaged_skill_version": "2.1.0",
+    "package_file_count": 5,
+    "license_included": "MIT",
+    "package_sha256": "d78801f9478d214e1b880bbb732b4a5f6d8dd793d475a6194c2a195603cb458c",
+    "reproducible_zip_hash_match": true,
+    "packaged_skill_structural_validation": "passed",
+    "relative_document_links": "passed",
+    "ci_workflow_yaml": "passed"
+  }
+}

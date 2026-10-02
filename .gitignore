@@ -1,0 +1,26 @@
+# Private local archives and runtime evidence.
+.local/
+test-runs/
+.background-jobs/
+install-record.json
+**/continuation.rpc.jsonl
+**/continuation.evidence.json
+**/continuation.completed-event.json
+
+# Generated releases, interpreter caches and transient process files.
+dist/
+*.zip
+__pycache__/
+*.py[cod]
+*.sock
+*.lock
+*.tmp
+ready-*.json
+
+# Credentials and editor metadata.
+.env
+.env.*
+.venv/
+.idea/
+.vscode/
+.DS_Store
