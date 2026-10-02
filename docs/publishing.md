@@ -20,6 +20,15 @@ python3 scripts/package_skill.py
 
 将 `dist/background-job-continuation-2.1.0.zip` 作为 GitHub Release 附件。它包含可安装的 skill 和 MIT 许可证；源码仓库保留打包脚本，生成的 ZIP 不提交。
 
+仓库的 Release workflow 会在推送 `v*` 标签时核验标签与 helper 版本一致，运行隔离测试，打包并发布带 ZIP 和 `SHA256SUMS` 的 Release。发布前在 `docs/releases/v<版本>.md` 准备版本说明，例如：
+
+```bash
+git tag -a v2.1.0 -m "background-job-continuation v2.1.0"
+git push origin refs/tags/v2.1.0
+```
+
+版本标签应指向已发布的源码提交。现有版本的标签和附件保持不变，更新时使用新版本号。
+
 需要带测试和文档的源码 ZIP 时，可以从当前公开分支生成：
 
 ```bash

@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Verify release tag matches helper version
+        id: version
+        run: |
+          python3 - <<'PY'
+          import importlib.util
+          import os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('package_skill', 'scripts/package_skill.py')
+          package = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(package)
+          version = package.version()
+          if os.environ['GITHUB_REF_NAME'] != 'v' + version:
+              raise SystemExit('Release tag must equal v' + version)
+          if not Path('docs/releases/v' + version + '.md').is_file():
+              raise SystemExit('Versioned release notes are missing')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('version=' + version + '\n')
+          PY
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Run isolated integration tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Build skill ZIP and checksum
+        run: |
+          python3 scripts/package_skill.py
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          packages = list(Path('dist').glob('background-job-continuation-*.zip'))
+          if len(packages) != 1:
+              raise SystemExit('Expected exactly one skill ZIP')
+          package = packages[0]
+          checksum = hashlib.sha256(package.read_bytes()).hexdigest()
+          Path('dist/SHA256SUMS').write_text(checksum + '  ' + package.name + '\n')
+          PY
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          zip="dist/background-job-continuation-${RELEASE_VERSION}.zip"
+          notes="docs/releases/v${RELEASE_VERSION}.md"
+          gh release create "$GITHUB_REF_NAME" "$zip" dist/SHA256SUMS \
+            --verify-tag --title "background-job-continuation v${RELEASE_VERSION}" \
+            --notes-file "$notes" --latest
