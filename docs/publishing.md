@@ -1,4 +1,22 @@
-# 首次发布到 GitHub
+# 发布与后续开发
+
+## 当前仓库的分支
+
+本项目已发布的仓库是 [VictoriqueDeBlois/background-skill](https://github.com/VictoriqueDeBlois/background-skill)，公开代码位于 `publish` 分支。当前 Linux 工作区的本地 `main` 保留早期开发和原始测试历史，不作为公开代码的开发起点，也不要合并到 `publish` 或推送到公开仓库。
+
+Windows 适配建议从最新的 `origin/publish` 创建独立分支，例如 `codex/windows-continuation`：
+
+```bash
+git clone --branch publish https://github.com/VictoriqueDeBlois/background-skill.git
+cd background-skill
+git switch -c codex/windows-continuation origin/publish
+```
+
+在该分支开发、测试并推送后，通过目标为 `publish` 的 Pull Request 合并。`publish` 是当前主线的名称，不影响正常开发，无需为了 Windows 适配切换或重命名为 `main`。克隆前先提交并推送需要迁移的本地文档修改。
+
+新会话可使用 [Windows 开发接手 prompt](windows-handoff.md)。
+
+## 首次发布到其他仓库
 
 本地 `publish` 分支是用于首次公开发布的独立根提交，不包含开发时的原始测试记录或旧历史。本地 `main` 保留原有历史，`.local/` 保留原始材料；两者无需上传。
 
@@ -10,7 +28,7 @@ git remote add origin git@github.com:OWNER/REPO.git
 git push -u origin publish:main
 ```
 
-这是把本地 `publish` 发布为 GitHub 的 `main`。后续更新继续在本地 `publish` 提交，用 `git push origin publish:main` 推送。首次发布无需 `--force`，也无需 `--all` 或 `--mirror`。
+这个示例适用于新建的其他空仓库，把本地 `publish` 发布为 GitHub 的 `main`。后续更新继续在本地 `publish` 提交，用 `git push origin publish:main` 推送。当前已发布仓库使用上面的 `publish` 开发流程。首次发布无需 `--force`，也无需 `--all` 或 `--mirror`。
 
 ## Release 附件
 

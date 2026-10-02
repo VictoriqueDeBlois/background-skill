@@ -66,7 +66,15 @@ python3 "$helper" recover --job-dir /absolute/job-directory
 4. 计算完成后先保存结果，等待线程空闲，再派发后续任务。
 5. 用精确的线程 ID、turn ID 和任务标记核验续接，通过完成事件或历史查询记录最终状态。
 
-原 app-server 必须持续运行，Linux 主机必须能访问模型服务。tmux 不保证主机重启后的恢复。旧版或 `--no-daemon` 客户端没有可核验的共享控制端点时不适用。人工审批和客户端专属工具可能等待重连；配置变化或 writer 冲突会停止派发并保留结果。
+自动续接以原 app-server 持续运行、执行主机可访问模型服务为前提。当前支持原则是：
+
+- SSH 或客户端连接断开、原服务器仍运行时，后台计算继续，完成后自动续接；人工审批和客户端专属工具仍可能等待重连。
+- 用户主动退出 App 后，是否还能续接取决于原 app-server 是否继续运行，不作保证。
+- 服务器意外退出时，只要主机和 tmux worker 仍运行，后台计算尽量继续并保存结果。已有监控会在等待期限内尝试重连；服务器恢复后也可使用 `recover` 恢复监控。这是补救措施，不承诺服务器重启后的自动续接。
+
+当前不包含 App 启动时扫描待续接任务、自动重启服务器或安装常驻服务。真实测试覆盖 SSH 断线和原线程卸载后的恢复，尚未验证 App 完全退出或 app-server 真正退出、重启。
+
+tmux 不保证主机重启后的恢复。旧版或 `--no-daemon` 客户端没有可核验的共享控制端点时不适用。配置变化或 writer 冲突会停止派发并保留结果。
 
 详细操作见 [SKILL.md](background-job-continuation/SKILL.md)，协议和恢复说明见 [protocol.md](background-job-continuation/references/protocol.md)。
 

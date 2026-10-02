@@ -25,7 +25,9 @@ The tmux worker creates its own persistent proxy connection and subscription **b
 
 If this known target becomes unloaded, use the saved original endpoint's `thread/resume`, then verify its exact identity, workspace and effective settings again. This is an RPC to the existing server, not a new `codex exec resume` process. A different named profile, model, approval mode or sandbox causes `configuration_mismatch`; an active-writer rejection causes `owner_conflict`. Neither is retried automatically. A legacy raw sandbox can acquire a named profile after reload on this baseline; that identity change also stops dispatch. Explicit profiles remain comparable across reload in the real acceptance test.
 
-The daemon must outlive the SSH frontend; tmux preserves the worker but cannot preserve a daemon that the host terminates. Losing network access from the Linux host to the model provider also prevents continuation. A server restart can be retried via the saved stable socket symlink, but settings must still match. The helper does not install services or restart servers.
+The supported automatic-continuation path requires the original daemon to outlive the disconnected frontend; tmux preserves the worker but cannot preserve a daemon that the host terminates. Quitting the App is not covered by a continuation guarantee: the outcome depends on whether its original server remains alive. Losing network access from the Linux host to the model provider also prevents continuation.
+
+Unexpected server exit is a recovery scenario. If the host and tmux worker remain alive, computation can continue and save its completion record. A server restart can be retried via the saved stable socket symlink within the monitor's wait limits, but settings must still match; `recover` can restart monitoring after endpoint availability returns. This does not guarantee automatic continuation after an App exit or server restart, which have not been validated. The helper does not scan jobs on App startup, install services or restart servers.
 
 ## Completion and races
 
