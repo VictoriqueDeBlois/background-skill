@@ -2,7 +2,7 @@
 
 ## Baseline and transport
 
-Helper version: 2.1.1. Dependencies: Linux, Python 3 standard library, tmux, and `codex app-server proxy`. Validation baseline: CLI 0.159.3 / tmux 3.4. Discover capabilities rather than assuming all newer versions work; daemon and CLI versions may differ.
+Helper version: 2.2.0. Dependencies: Linux, Python 3 standard library, tmux, and `codex app-server proxy`. Original live validation baseline: CLI 0.159.3 / tmux 3.4. Notification retirement is covered by isolated fake-RPC integration tests, not a new live-server acceptance run. Discover capabilities rather than assuming all newer versions work; daemon and CLI versions may differ.
 
 ```bash
 codex app-server proxy --help
@@ -21,7 +21,7 @@ Connect with `initialize`, then `initialized`. `thread/read` verifies exact ID a
 
 Preflight calls `thread/resume` on the verified, loaded owner with only `threadId` and `excludeTurns`. This attaches the connection and returns effective settings. Save model/provider, reasoning effort, service tier, approval policy/reviewer, sandbox policy, active permission profile and disabled plugins when available. Store a digest of collaboration settings rather than developer instructions. No configuration overrides are sent.
 
-The tmux worker creates its own persistent proxy connection and subscription **before computation**, checks it during computation, and retains it until exact-turn completion. The frontend connection may close independently. `lease.json` records successful subscription, settings verification and reload count. `lease.error.json` records faults separately from computation.
+The tmux worker creates its own persistent proxy connection and subscription **before computation**, checks it during computation, and retains it until exact-turn completion, explicit notification retirement or the monitoring deadline. The frontend connection may close independently. `lease.json` records successful subscription, settings verification and reload count. `lease.error.json` records faults separately from computation.
 
 If this known target becomes unloaded, use the saved original endpoint's `thread/resume`, then verify its exact identity, workspace and effective settings again. This is an RPC to the existing server, not a new `codex exec resume` process. A different named profile, model, approval mode or sandbox causes `configuration_mismatch`; an active-writer rejection causes `owner_conflict`. Neither is retried automatically. A legacy raw sandbox can acquire a named profile after reload on this baseline; that identity change also stops dispatch. Explicit profiles remain comparable across reload in the real acceptance test.
 
@@ -44,6 +44,37 @@ Before send, verify idle and snapshot previous turn IDs. Persist an attempt mark
 An accepted request whose reply is lost stays `dispatch_outcome_unknown`. Search the exact marker in **user-message** items. No match is not proof of rejection; never resend automatically. Legacy manifests without verified settings can observe a known attempt while its owner is loaded, but cannot reload an unloaded thread or initiate another attempt.
 
 ## Records and recovery
+
+### Result consumption and notification retirement
+
+Computation (`completion.json`), dispatch/turn observations (`continuation.json`) and notification retirement (`notification.json`) are separate records. `ack --job-dir PATH --reason TEXT` records that the caller handled this job's completed result; it requires a matching job ID in `completion.json`, but accepts failed computation too. `cancel-notification` records an explicit stop without requiring completed computation. Neither command claims business success or modifies earlier dispatch evidence. Repeated controls preserve the first retirement record and reason.
+
+These controls acquire `notification.lock`, which the monitor holds from the final eligibility check through persisting its attempt, sending, and recording the reply or unknown outcome. They do not acquire the long-lived `worker.lock` or `dispatch.lock`. Thus cancellation can complete during computation, idle waits, disconnected-server waits or turn observation. If a send is already in flight, control waits for that RPC boundary, normally bounded by `rpc_timeout` (plus local persistence/cleanup). `notification.delivery_at_retirement` records what was known then:
+
+| Delivery | Meaning |
+| --- | --- |
+| `not_attempted` | No durable attempt exists; this control prevents sending. |
+| `already_dispatched` | A turn ID was returned or reconciled; control cannot retract its message or stop the turn. |
+| `dispatch_outcome_unknown` | An attempt exists without a confirmed reply; it may have been accepted. Never resend. |
+| `rejected` | Explicit RPC rejection is recorded. |
+
+The monitor checks retirement before endpoint access, on each iteration, before the durable send intent and immediately before `turn/start`. Once a control returns successfully, this worker cannot initiate another send. A notification already accepted may still appear in the UI later. `status` reports current delivery separately from the retirement snapshot. Retirement stops observation too, preserving the last verified turn state without converting it to completion. An unknown marker can still be investigated with read-only server queries; `recover` will not resume a retired notification just to reconcile it.
+
+During computation, retirement closes the subscription at the next worker check but does not send any signal to the computation. The worker saves normal completion and logs, then exits instead of notifying. During monitoring, it exits at the next check, after any current RPC/poll wait. `status.worker_running` probes the actual worker flock, rather than inferring liveness from historical JSON states, tmux presence or a recorded PID. It can remain true while the preserved computation runs or an RPC finishes. `--keep-tmux` may leave a dead pane after the worker exits. Keep controls and job files: deleting a retirement record removes its protection.
+
+### Workflow generations
+
+`launch --workflow ID` assigns the new job the latest notification generation for that logical workflow. Ownership is an atomic record under `<lock_root>/workflows/<digest>.json`; the digest includes host/user/Codex-home scope, exact thread ID, canonical workspace and workflow ID. The generation increases on each registered launch. The ownership lock is also held across sending. A replacement that wins before send suppresses the old send; one that follows an accepted send cannot retract it. Never restore an older owner automatically, even when a newer launch fails: inspect the failure and arrange an authorized replacement.
+
+Old workers derive `notification.state=superseded` from this record; their computation and dispatch records are unchanged. They stop subscribing/monitoring, keep any running computation, and cannot be revived by `recover`, even after the latest owner is acknowledged. Preserve the registry and use one lock root for related runs. Missing ownership records block dispatch rather than silently reactivating old generations.
+
+This is replacement, not batch aggregation. Use one coordinator command that waits for children and writes a current aggregate, then register that coordinator's continuation. Reuse its workflow ID only for actual replacements. Parallel children needing inclusion in the aggregate must not each claim the same workflow ID: the latest child would replace the others rather than wait for them. Distinct business workflows use distinct IDs. Jobs without a workflow retain independent delivery for compatibility; acknowledge or cancel each exact old job individually.
+
+### Legacy workers
+
+Installing 2.2.0 does not change a process already executing 2.1.x code. The new worker records its control capability in `worker.json` while holding `worker.lock`; controls refuse a live worker without that capability. For a stopped legacy job, `ack`/`cancel-notification` are immediately durable and the new `recover` respects them. A legacy manifest recovered under the new helper gains the new worker capability.
+
+For a running legacy worker, first inventory the exact thread, job ID, worker and child process. Only stop its verified job-specific **monitor** once computation is durably complete, or use a monitor-only mechanism whose separation from computation has been verified. A combined worker/pane kill can kill or signal computation: do not use it for a notification-only stop while the child runs. Preserve evidence and record retirement with the new helper after the old monitor exits. No broad process kills, lock deletion, database edits or app-server restart. Already dispatched messages remain distinct from future sends.
 
 Records use same-directory temp files, file fsync, atomic rename and directory fsync. SIGINT/SIGTERM forward to the job process group. SIGKILL, power loss or host failure can prevent completion recording. Artifact existence does not prove business success.
 
@@ -68,7 +99,7 @@ The worker pane has `remain-on-exit=off` by default, explicitly overriding inher
 
 Job locks prevent duplicate wrappers. Thread locks default to `<CODEX_HOME>/background-job-continuation/locks`. `--lock-root` enables isolated tests; all real monitors for a thread must share a root. These locks serialize helpers, not interactive users. Lock files remaining after exit are normal: ownership belongs to the open descriptor. Do not delete them to force access.
 
-`execution.json`, `completion.json`, `continuation.json`, RPC logs and matched-turn evidence have separate purposes. Recovery restarts only observation, not a killed computation. Raw RPC files include prompts and results; keep the job directory private.
+`execution.json`, `completion.json`, `continuation.json`, `notification.json`, RPC logs and matched-turn evidence have separate purposes. A stale `waiting_idle`/`pending` continuation record does not override notification retirement. Current-state updates clear transient errors, expired-wait flags and pending-request summaries; exact attempt and turn evidence remain. Recovery restarts only observation, not a killed computation. Raw RPC files include prompts and results; keep the job directory private.
 
 ## Acceptance
 

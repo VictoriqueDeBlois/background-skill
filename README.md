@@ -1,6 +1,6 @@
 # background-job-continuation
 
-让 Linux 后台任务在 tmux 中运行，并在本地 CLI 或 SSH 客户端断开后，自动续接原来的 Codex 聊天。当前源码版本：**2.1.1**，许可证：[MIT](LICENSE)。
+让 Linux 后台任务在 tmux 中运行，并在本地 CLI 或 SSH 客户端断开后，自动续接原来的 Codex 聊天。当前源码版本：**2.2.0**，许可证：[MIT](LICENSE)。
 
 监控器与任务一起留在 Linux 主机上，保持原 app-server 的线程订阅。任务完成后，它保存退出码和日志，再向原线程发送已授权的后续任务；线程被卸载时，通过同一服务器重新加载并核验配置。
 
@@ -39,6 +39,7 @@ helper="${CODEX_HOME:-$HOME/.codex}/skills/background-job-continuation/scripts/b
 python3 "$helper" doctor --cwd /absolute/workspace
 python3 "$helper" launch \
   --cwd /absolute/workspace \
+  --workflow evaluation \
   --job-dir /absolute/workspace/.background-jobs/run-001 \
   --next-file /absolute/next-task.txt \
   --artifact /absolute/result.json \
@@ -58,7 +59,23 @@ python3 "$helper" status --job-dir /absolute/job-directory
 python3 "$helper" recover --job-dir /absolute/job-directory
 ```
 
-`recover` 只恢复监控；不会重跑计算，也不会盲目重发结果未知的续接请求。
+主会话已经处理结果时，必须确认消费，关闭尚未发出的通知：
+
+```bash
+python3 "$helper" ack --job-dir /absolute/job-directory --reason '当前会话已处理结果'
+```
+
+用户只要求停止通知、计算还需继续时：
+
+```bash
+python3 "$helper" cancel-notification --job-dir /absolute/job-directory --reason '用户停止通知'
+```
+
+这两个接口保存持久化状态，不终止计算或现有 Codex turn。`status` 中的 `notification.state` 和 `notification.delivery` 区分已消费、已取消、被新一代替代，以及尚未发送、已经发出或发送结果未知；`worker_running` 检查实际 worker 锁。已经入站的消息不能撤回。计算还在运行时，worker 保留到结果落盘；仅监控时，等待当前 RPC/轮询结束后退出。
+
+同一业务的多个并行批次和重试，默认由一个协调器汇总，子任务只保存结果。`--workflow evaluation` 为协调器提供稳定身份；相同线程、工作目录和锁根下以同一 ID 启动替代协调器，会关闭旧一代的通知，保留旧计算。它不是自动汇总器，不能给每个并行子任务都注册同一个 workflow 并期待等待所有结果。独立业务使用不同 ID；未指定 ID 的旧用法仍是每个 job 独立通知。
+
+`recover` 只恢复监控；不会重跑计算、盲目重发结果未知的续接请求，也不会复活已消费、已取消或被替代的通知。升级文件不会改变正在运行的 2.1.x worker；新 CLI 会拒绝声称取消此类旧进程。迁移方法见 [协议说明](background-job-continuation/references/protocol.md#legacy-workers)。
 
 ## 工作机制与边界
 
@@ -89,8 +106,10 @@ python3 -m unittest discover -s tests -v
 python3 scripts/package_skill.py
 ```
 
-打包输出为 `dist/background-job-continuation-2.1.1.zip`，包含 skill 文件和 MIT 许可证。ZIP 不提交到源码仓库，可用于 GitHub Release 附件。
+打包输出为 `dist/background-job-continuation-2.2.0.zip`，包含 skill 文件和 MIT 许可证。ZIP 不提交到源码仓库，可用于 GitHub Release 附件。
 
 2.1.0 的 19 项隔离测试、真实服务器的断开与卸载测试、物理 SSH 断线测试均已通过。物理测试中，任务和续接均在用户报告的断线区间内完成。2.1.1 的 22 项隔离测试通过；已安装 helper 的真实前端断开与线程卸载测试也确认续接完成后 tmux 会话自行退出。测试覆盖默认关闭 tmux、调试保留窗口、续接与审批期间保持监控、超时后的恢复，以及不影响其他会话。公开摘要见 [test-report.json](test-report.json)，其中 `tmux_cleanup_validation` 记录本次修复的验证；原始日志、会话标识和本机安装记录仅保留在本地。
+
+2.2.0 增加通知生命周期控制及工作流替代，复盘见 [通知积压问题审查](docs/notification-lifecycle-review.zh.md)。新控制使用隔离 fake RPC/tmux 测试验证，未在真实用户会话注入通知或重新执行历史构建；历史真实断线结果不能当作本版新功能的真实服务器验收。
 
 复现测试见 [docs/testing.md](docs/testing.md)，首次发布步骤见 [docs/publishing.md](docs/publishing.md)。

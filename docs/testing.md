@@ -8,7 +8,9 @@
 python3 -m unittest discover -s tests -v
 ```
 
-22 项测试使用临时目录、专用 tmux socket 和 fake app-server proxy，不访问真实模型或用户聊天。覆盖失败计算、部分结果、审批等待、线程卸载重载、配置变化、writer 冲突、丢失回复、精确 turn 匹配、并发恢复和不重复运行，以及完成后默认关闭 tmux、`--keep-tmux` 调试保留、全局 tmux 配置隔离和超时后的旧任务恢复。审批和续接仍在等待时，worker 窗口必须保持运行。
+36 项测试使用临时目录、专用 tmux socket 和 fake app-server proxy，不访问真实模型或用户聊天。覆盖失败计算、部分结果、审批等待、线程卸载重载、配置变化、writer 冲突、丢失回复、精确 turn 匹配、并发恢复和不重复运行，以及完成后默认关闭 tmux、`--keep-tmux` 调试保留、全局 tmux 配置隔离和超时后的旧任务恢复。审批和续接仍在等待且通知未退休时，worker 窗口必须保持运行。
+
+2.2.0 的新增场景包括结果已消费后不补发，计算中只取消通知，取消与发送并发，发送丢失回复，同一工作流多次替代及其发送竞态，独立业务通知，退休后 recover 不复活，失败结果消费，以及对旧运行中 worker 拒绝虚假的取消声明。测试以 fake RPC 请求数、marker/turn ID、实际子进程存活、结果/日志与 worker 锁状态验证行为，不向真实用户聊天注入旧消息。
 
 GitHub Actions 只运行这些隔离测试和打包，不执行真实模型测试。
 
@@ -25,7 +27,7 @@ python3 tests/live_smoke.py \
 
 验证 workspace 权限和自动审批审查配置时追加 `--workspace-profile`。它将临时线程的 runtime workspace roots 指向测试输出目录。
 
-这是协议层前端断开测试，不等同于实际断开 SSH。测试结果写入 `smoke-result.json`；检查 `passed`、`test_thread_deleted`、退出码、精确续接 turn、最终响应、`lease.reload_count` 和 `tmux_session_closed`。最后一项必须在测试清理临时 tmux server 之前验证，确认会话由 worker 退出自行关闭。
+这是协议层前端断开测试，不等同于实际断开 SSH。该测试专门观察精确 turn 完成事件，未让测试续接执行 ack；若测试消费退休，应分别检查 notification 与 continuation，不能要求退休后仍持续观察 turn 完成。测试结果写入 `smoke-result.json`；检查 `passed`、`test_thread_deleted`、退出码、精确续接 turn、最终响应、`lease.reload_count` 和 `tmux_session_closed`。最后一项必须在测试清理临时 tmux server 之前验证，确认会话由 worker 退出自行关闭。
 
 ## 物理 SSH 断线测试
 

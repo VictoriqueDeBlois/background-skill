@@ -117,5 +117,46 @@
       "maintained_files_match": "passed"
     },
     "release_status": "Source update and local package only; existing v2.1.0 release unchanged."
+  },
+  "notification_lifecycle_validation": {
+    "skill_version": "2.2.0",
+    "validation_date": "2026-10-28",
+    "environment": {
+      "python": "3.12.3",
+      "tmux": "tmux 3.4",
+      "transport": "isolated fake RPC; no model calls"
+    },
+    "review_bundle_checksum_verified": true,
+    "isolated_tests": {
+      "count": 36,
+      "result": "passed",
+      "command": "python3 -m unittest discover -s tests -v"
+    },
+    "coverage": [
+      "Consumed results are not delivered after idle or recover.",
+      "Notification cancellation preserves running computation, logs, results and unrelated tmux sessions.",
+      "Cancellation before send prevents dispatch; cancellation after send preserves turn identity.",
+      "Lost send reply remains unknown and is never resent after retirement.",
+      "Same-workflow replacements suppress old notifications, including during running computation and send races.",
+      "Independent workflows retain independent notification delivery.",
+      "Live legacy workers without control capability reject false cancellation; stopped legacy jobs can be retired.",
+      "Failed computation can be acknowledged without claiming success.",
+      "Transient errors, wait-expiry flags and pending request summaries do not leak into later observations.",
+      "Existing identity/settings, exact-turn, reply-loss, recovery and tmux-lifecycle regressions remain covered."
+    ],
+    "structural_validation": "passed",
+    "package": {
+      "version": "2.2.0",
+      "file_count": 5,
+      "sha256": "e048e7d5c128455390323573c6fdaf6759f02d40205e5f56394eddc130b84c7a",
+      "archive_integrity": "passed",
+      "maintained_files_match": "passed",
+      "reproducible_zip_hash_match": true,
+      "packaged_skill_structural_validation": "passed"
+    },
+    "live_server_validation": "not run for 2.2.0; previous-version live results remain historical",
+    "physical_ssh_disconnect_validation": "not rerun",
+    "interactive_input_admission_race": "not validated against a live server; no atomic idle-only guarantee",
+    "release_status": "Source and package validated before publication; release and installation are verified separately from runtime acceptance."
   }
 }

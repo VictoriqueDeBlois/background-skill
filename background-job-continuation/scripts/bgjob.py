@@ -21,7 +21,7 @@ import sys
 import time
 import uuid
 
-VERSION = "2.1.1"
+VERSION = "2.2.0"
 FINAL = {"followup_completed", "followup_finished_with_error", "dispatch_failed", "configuration_mismatch", "owner_conflict"}
 
 
@@ -429,9 +429,85 @@ def detect(codex, endpoints, thread_id, cwd):
 
 def put_state(jobdir, state, **fields):
     record = read_json(jobdir / "continuation.json", {})
+    # Errors describe this observation, not every later state of the job.
+    for key in ("error", "wait_expired", "pending_server_methods", "turn_error"):
+        record.pop(key, None)
     record.update(state=state, updated_at=now(), **fields)
     atomic(jobdir / "continuation.json", record)
     return record
+
+
+def workflow_path(job):
+    identity = [job["scope"], job["thread_id"], job["cwd"], job["workflow"]["id"]]
+    key = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+    return Path(job["lock_root"]) / "workflows" / (key + ".json")
+
+
+def workflow_guard(job):
+    return lock(workflow_path(job).with_suffix(".lock")) if job.get("workflow") else contextlib.nullcontext()
+
+
+def notification(jobdir, job):
+    control = read_json(jobdir / "notification.json")
+    if control:
+        if control.get("job_id") != job["job_id"] or control.get("state") not in {"acknowledged", "cancelled"}:
+            raise Boundary("Invalid notification control record; refusing dispatch")
+        return control
+    if job.get("workflow"):
+        current = read_json(workflow_path(job))
+        if not current:
+            raise Boundary("Workflow ownership record missing; refusing dispatch")
+        if current["job_id"] != job["job_id"]:
+            return {"state": "superseded", "job_id": job["job_id"], "replacement": current}
+    return {"state": "pending", "job_id": job["job_id"]}
+
+
+def retired(jobdir, job):
+    return notification(jobdir, job)["state"] != "pending"
+
+
+def worker_running(jobdir):
+    try:
+        with (jobdir / "worker.lock").open("r") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(handle, fcntl.LOCK_UN)
+    except FileNotFoundError:
+        pass
+    return False
+
+
+def delivery_state(record):
+    if record.get("turn_id"):
+        return "already_dispatched"
+    if record.get("state") == "dispatch_failed":
+        return "rejected"
+    return "dispatch_outcome_unknown" if record.get("dispatch_id") else "not_attempted"
+
+
+def control_notification(args):
+    jobdir = Path(args.job_dir).resolve()
+    job = read_json(jobdir / "job.json")
+    if not job or job["scope"] != scope(home()):
+        raise Boundary("Job missing or belongs to another host/user/Codex home")
+    # Held through the send/reply boundary, never through turn completion or computation.
+    with lock(jobdir / "notification.lock"):
+        if worker_running(jobdir) and read_json(jobdir / "worker.json", {}).get("notification_control_version") != 1:
+            raise Boundary("Running legacy worker cannot observe notification controls; upgrade/restart only its monitor after computation ends")
+        completion = read_json(jobdir / "completion.json")
+        if args.action == "ack" and (not completion or completion.get("job_id") != job["job_id"]):
+            raise Boundary("ack requires this job's durable completion record; use cancel-notification to stop a running job's notification")
+        existing = read_json(jobdir / "notification.json")
+        if not existing:
+            record = read_json(jobdir / "continuation.json", {})
+            atomic(jobdir / "notification.json", {"job_id": job["job_id"],
+                "state": "acknowledged" if args.action == "ack" else "cancelled", "at": now(),
+                "reason": args.reason, "delivery_at_retirement": delivery_state(record),
+                "dispatch_id": record.get("dispatch_id"), "marker": record.get("marker"),
+                "turn_id": record.get("turn_id")})
+    return status(args)
 
 
 def prompt_for(job, jobdir, marker):
@@ -439,9 +515,15 @@ def prompt_for(job, jobdir, marker):
             f"Completion record: {jobdir / 'completion.json'}\n"
             f"stdout: {jobdir / 'job.stdout.log'}\nstderr: {jobdir / 'job.stderr.log'}\n"
             f"Artifacts: {json.dumps(job['artifacts'], ensure_ascii=False)}\n"
+            f"Check current notification/workflow state first: {shlex.join([sys.executable, str(Path(__file__).resolve()), 'status', '--job-dir', str(jobdir)])}\n"
+            "If acknowledged, cancelled or superseded, quietly finish without repeating old work or progress reports. "
+            "Reload the current workflow checkpoint; the saved next task may be stale. "
             "Read the completion record and relevant results before deciding the next action. "
             "Check exit code and partial results. Do not rerun completed computation because "
-            "continuation was delayed. Continue only with this authorized next task:\n" + job["next_task"])
+            "continuation was delayed. After handling these results, acknowledge them with "
+            f"{shlex.join([sys.executable, str(Path(__file__).resolve()), 'ack', '--job-dir', str(jobdir), '--reason', 'Results handled in the owning chat'])}. "
+            "This stops notification monitoring, not this turn. Do not wait for your own turn to complete. "
+            "Continue only with this authorized next task:\n" + job["next_task"])
 
 
 def observe_followup(rpc, jobdir, job, record, identity):
@@ -484,6 +566,8 @@ def monitor(jobdir, job, lease=None):
     lease = lease or OwnerLease(jobdir, job)
     try:
         with lock(jobdir / "dispatch.lock", blocking=False):
+            if retired(jobdir, job):
+                return notification(jobdir, job)
             if read_json(jobdir / "continuation.json", {}).get("state") in FINAL:
                 return read_json(jobdir / "continuation.json")
             if not read_json(jobdir / "completion.json"):
@@ -491,6 +575,8 @@ def monitor(jobdir, job, lease=None):
             wait_deadline = time.monotonic() + job["wait_timeout"]
             observe_deadline = None
             while True:
+                if retired(jobdir, job):
+                    return notification(jobdir, job)
                 record = read_json(jobdir / "continuation.json", {})
                 known, attempted = bool(record.get("turn_id")), bool(record.get("dispatch_id"))
                 if known and observe_deadline is None:
@@ -515,19 +601,25 @@ def monitor(jobdir, job, lease=None):
                                 rpc, identity = lease.ensure(refresh=True)
                                 if identity["status"]["type"] == "idle":
                                     history = turns(rpc, job["thread_id"])
-                                    dispatch_id = str(uuid.uuid4())
-                                    marker = f"[background-job-continuation job={job['job_id']} dispatch={dispatch_id}]"
-                                    put_state(jobdir, "dispatching", dispatch_id=dispatch_id, marker=marker,
-                                        attempted_at=now(), previous_turn_ids=[t["id"] for t in history], server=rpc.info)
-                                    try:
-                                        response = rpc.call("turn/start", {"threadId": job["thread_id"], "input": [{"type": "text", "text": prompt_for(job, jobdir, marker)}], "clientUserMessageId": dispatch_id})
-                                        turn = response["turn"]
-                                        put_state(jobdir, "completion_status_unverified", turn_id=turn["id"], turn_status=turn.get("status"), dispatch_response=response)
-                                    except RpcError as exc:
-                                        return put_state(jobdir, "dispatch_failed", error=exc.error)
-                                    except (OSError, Boundary, KeyError, ValueError) as exc:
-                                        put_state(jobdir, "dispatch_outcome_unknown", error=str(exc))
-                                        lease.close()
+                                    with workflow_guard(job), lock(jobdir / "notification.lock"):
+                                        if retired(jobdir, job):
+                                            return notification(jobdir, job)
+                                        dispatch_id = str(uuid.uuid4())
+                                        marker = f"[background-job-continuation job={job['job_id']} dispatch={dispatch_id}]"
+                                        put_state(jobdir, "dispatching", dispatch_id=dispatch_id, marker=marker,
+                                            attempted_at=now(), previous_turn_ids=[t["id"] for t in history], server=rpc.info)
+                                        # Recheck durable controls immediately before the only send.
+                                        if retired(jobdir, job):
+                                            return notification(jobdir, job)
+                                        try:
+                                            response = rpc.call("turn/start", {"threadId": job["thread_id"], "input": [{"type": "text", "text": prompt_for(job, jobdir, marker)}], "clientUserMessageId": dispatch_id})
+                                            turn = response["turn"]
+                                            put_state(jobdir, "completion_status_unverified", turn_id=turn["id"], turn_status=turn.get("status"), dispatch_response=response)
+                                        except RpcError as exc:
+                                            return put_state(jobdir, "dispatch_failed", error=exc.error)
+                                        except (OSError, Boundary, KeyError, ValueError) as exc:
+                                            put_state(jobdir, "dispatch_outcome_unknown", error=str(exc))
+                                            lease.close()
                         except (ConfigurationMismatch, WriterConflict):
                             raise
                         except Boundary as exc:
@@ -591,7 +683,10 @@ def run_computation(jobdir, job, lease):
                     break
                 except subprocess.TimeoutExpired:
                     try:
-                        lease.ensure()
+                        if retired(jobdir, job):
+                            lease.close()
+                        else:
+                            lease.ensure()
                     except ConfigurationMismatch as exc:
                         atomic(jobdir / "lease.error.json", {"at": now(), "error": str(exc)})
                         lease.close()
@@ -622,10 +717,12 @@ def worker(args):
         time.sleep(0.1)
     gate.unlink()
     with lock(jobdir / "worker.lock", blocking=False):
+        atomic(jobdir / "worker.json", {"pid": os.getpid(), "started_at": now(), "notification_control_version": 1})
         lease = OwnerLease(jobdir, job)
         try:
             try:
-                lease.ensure()
+                if not retired(jobdir, job):
+                    lease.ensure()
             except ConfigurationMismatch as exc:
                 return put_state(jobdir, "configuration_mismatch", error=str(exc))
             except (OSError, Boundary, KeyError, ValueError) as exc:
@@ -636,6 +733,7 @@ def worker(args):
             return monitor(jobdir, job, lease)
         finally:
             lease.close()
+            atomic(jobdir / "worker.json", {"pid": os.getpid(), "exited_at": now(), "notification_control_version": 1})
 
 
 def binding(args):
@@ -675,7 +773,16 @@ def launch(args):
         "lock_root": str(Path(args.lock_root or Path(home()) / "background-job-continuation/locks").resolve()),
         "poll_interval": args.poll_interval, "wait_timeout": args.wait_timeout,
         "observe_timeout": args.observe_timeout, "rpc_timeout": args.rpc_timeout}
-    atomic(jobdir / "job.json", job)
+    if args.workflow:
+        job["workflow"] = {"id": args.workflow}
+        with workflow_guard(job):
+            path = workflow_path(job)
+            previous = read_json(path, {})
+            job["workflow"]["generation"] = previous.get("generation", 0) + 1
+            atomic(jobdir / "job.json", job)
+            atomic(path, {"job_id": job["job_id"], "job_dir": str(jobdir), "at": now(), **job["workflow"]})
+    else:
+        atomic(jobdir / "job.json", job)
     put_state(jobdir, "pending")
     return {"job_dir": str(jobdir), **start_tmux(jobdir, job), "stdout": str(jobdir / "job.stdout.log"), "stderr": str(jobdir / "job.stderr.log")}
 
@@ -686,7 +793,9 @@ def status(args):
     if not job:
         raise Boundary("No job manifest")
     return {"job_dir": str(jobdir), "thread_id": job["thread_id"], "cwd": job["cwd"],
-        "completion": read_json(jobdir / "completion.json"), "continuation": read_json(jobdir / "continuation.json"), "tmux": read_json(jobdir / "tmux.json")}
+        "completion": read_json(jobdir / "completion.json"), "continuation": read_json(jobdir / "continuation.json"),
+        "notification": {**notification(jobdir, job), "delivery": delivery_state(read_json(jobdir / "continuation.json", {}))},
+        "workflow": job.get("workflow"), "worker_running": worker_running(jobdir), "tmux": read_json(jobdir / "tmux.json")}
 
 
 def recover(args):
@@ -694,6 +803,8 @@ def recover(args):
     job = read_json(jobdir / "job.json")
     if not job or job["scope"] != scope(home()):
         raise Boundary("Job missing or belongs to another host/user/Codex home")
+    if retired(jobdir, job):
+        return status(args)
     with lock(jobdir / "worker.lock", blocking=False):
         if read_json(jobdir / "continuation.json", {}).get("state") in FINAL:
             return status(args)
@@ -726,15 +837,18 @@ def parser():
             cmd.add_argument("--artifact", action="append", default=[])
             cmd.add_argument("--tmux-socket")
             cmd.add_argument("--keep-tmux", action="store_true", help="Keep the exited worker pane for debugging after monitoring ends")
+            cmd.add_argument("--workflow", help="Stable workflow ID; a new launch replaces this workflow's previous notification owner, preserving all computations")
             cmd.add_argument("--lock-root")
             cmd.add_argument("--poll-interval", type=positive, default=5)
             cmd.add_argument("--wait-timeout", type=positive, default=86400)
             cmd.add_argument("--observe-timeout", type=positive, default=3600)
             cmd.add_argument("--rpc-timeout", type=positive, default=15)
             cmd.add_argument("command", nargs=argparse.REMAINDER)
-    for name in ("status", "recover", "_worker"):
+    for name in ("status", "recover", "ack", "cancel-notification", "_worker"):
         cmd = subs.add_parser(name)
         cmd.add_argument("--job-dir", required=True)
+        if name in {"ack", "cancel-notification"}:
+            cmd.add_argument("--reason", required=True)
         if name == "_worker":
             cmd.add_argument("--gate", required=True)
             cmd.add_argument("--recover-only", action="store_true")
@@ -745,7 +859,7 @@ def main():
     os.umask(0o077)
     args = parser().parse_args()
     try:
-        result = {"version": VERSION, "codex_home": home(), **binding(args)} if args.action == "doctor" else {"launch": launch, "status": status, "recover": recover, "_worker": worker}[args.action](args)
+        result = {"version": VERSION, "codex_home": home(), **binding(args)} if args.action == "doctor" else {"launch": launch, "status": status, "recover": recover, "ack": control_notification, "cancel-notification": control_notification, "_worker": worker}[args.action](args)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (OSError, Boundary, ValueError, subprocess.CalledProcessError) as exc:

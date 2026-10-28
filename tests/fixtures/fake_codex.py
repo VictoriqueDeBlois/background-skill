@@ -152,6 +152,11 @@ while True:
         temporary = config.with_suffix('.tmp')
         temporary.write_text(json.dumps(state))
         os.replace(temporary, config)
+    if state.get('pause_method') == method:
+        Path(state['pause_entered']).write_text(method)
+        deadline = time.monotonic() + 10
+        while not Path(state['pause_release']).exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
     if drop:
         sys.exit(0)
     for message in notifications:
